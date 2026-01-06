@@ -1,0 +1,12 @@
+mxnet-cu110
+opencv-python
+timm
+pytz
+pillow
+torchserve
+torch-model-archiver
+nvgpu
+pyYAML
+# torch is installed seperately
+torch==1.7.0+cu110
+torchvision==0.8.1+cu110
