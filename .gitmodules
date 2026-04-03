@@ -1,0 +1,6 @@
+[submodule "motion-capture"]
+	path = motion-capture
+	url = https://github.com/freya-aino/motion-capture.git
+[submodule "document-suite"]
+	path = document-suite
+	url = https://github.com/freya-aino/document-suite.git
