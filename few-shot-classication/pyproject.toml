@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "hidapi>=0.15.0",
     "keyboard>=0.13.5",
     "pillow>=12.2.0",
     "pygame>=2.6.1",
@@ -26,6 +27,7 @@ torchvision = [
 name = "torch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
 
 [dependency-groups]
 dev = [
