@@ -1,4 +1,5 @@
 import pygame
+import time
 from webcam import Webcam
 import keyboard
 import numpy as np
@@ -17,6 +18,9 @@ from torchvision.transforms import Compose, Resize, CenterCrop, Normalize, Inter
 # TODO - set by env var or something
 IS_DEV = False
 ENCODER_MODEL = "vit_base_patch16_dinov3.lvd1689m"
+FRAME_SIZE = (256, 256)
+# ENCODER_MODEL = "vit_pe_spatial_tiny_patch16_512.fb"
+# FRAME_SIZE = (512, 512)
 MAX_NUM_VECTORS = 32
 INFERENCE_BUTTON = 8
 BUTTON_NAME_MAP = {
@@ -48,8 +52,8 @@ def _init_model():
     # transforms = timm.data.create_transform(**data_config, is_training=False)
     transforms = T.jit.script(
         T.nn.Sequential(
-            Resize(size=(256, 256), interpolation=InterpolationMode.BICUBIC, max_size=None, antialias=True),
-            CenterCrop(size=(256, 256)),
+            Resize(size=FRAME_SIZE, interpolation=InterpolationMode.BICUBIC, max_size=None, antialias=True),
+            CenterCrop(size=FRAME_SIZE),
             Normalize(mean=[0.4850, 0.4560, 0.4060], std=[0.2290, 0.2240, 0.2250])
         )
     )
@@ -58,24 +62,26 @@ def _init_model():
 def _infer_model(model, transforms, frame):
     # features = await loop.run_in_executor(None, _run_inference, model, transform, frame)
     frame = ToTensor()(frame).to(dtype=T.float32, device=DEVICE)
-    frame = transforms(frame).unsqueeze(0)
+    frame = transforms(frame)
     return model(frame)
 
 
 def input_thread(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_event: asyncio.Event):
 
-    pygame.init()
-    joysticks = []
-
-    if pygame.joystick.get_count() <= 0:
-        print("[INPUT] WARNING - no controler detected")
-
-    for i in range(0, pygame.joystick.get_count()):
-        joysticks.append(pygame.joystick.Joystick(i))
-        joysticks[-1].init()
-
-    print("[INPUT] - started")
     try:
+
+        pygame.init()
+        joysticks = []
+
+        if pygame.joystick.get_count() <= 0:
+            print("[INPUT] WARNING - no controler detected")
+
+        for i in range(0, pygame.joystick.get_count()):
+            joysticks.append(pygame.joystick.Joystick(i))
+            joysticks[-1].init()
+
+        print("[INPUT] - started")
+
         while not stop_event.is_set():
             state = {}
             
@@ -102,16 +108,18 @@ def input_thread(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_eve
     except Exception as e:
         print(f"[INPUT] ERROR - {e}")
     finally:
-        stop_event.set()
+        if not stop_event.is_set():
+            stop_event.set()
         print("[INPUT] stopped")
 
 
 def camera_thread(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_event: asyncio.Event):
 
-    webcam = Webcam(src=0, w=640)
-    print("[CAMERA] started")
-
     try:
+
+        webcam = Webcam(src=0, w=640)
+        print("[CAMERA] started")
+
         for frame in webcam:
             if stop_event.is_set():
                 break
@@ -126,7 +134,8 @@ def camera_thread(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_ev
         print(f"[CAMERA] error: {e}")
     finally:
         webcam.release()
-        stop_event.set()
+        if not stop_event.is_set():
+            stop_event.set()
         print("[CAMERA] stopped")
 
 async def camera_task(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_event: asyncio.Event):
@@ -140,10 +149,19 @@ async def process_task(frame_queue: asyncio.Queue, input_queue: asyncio.Queue, r
     print("[PROCESS] start")
     try:
         while not stop_event.is_set():
+
+            # get latest frame
             frame = await frame_queue.get()
+            while not frame_queue.empty():
+                try:
+                    frame = frame_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
 
             cv2.imshow("webcam frames", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-            cv2.waitKey(1)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
 
             if input_queue.empty():
                 continue
@@ -167,38 +185,49 @@ async def process_task(frame_queue: asyncio.Queue, input_queue: asyncio.Queue, r
         print(f"[PROCESS] failed - main loop: {e}")
     finally:
         cv2.destroyAllWindows()
-        stop_event.set()
+        if not stop_event.is_set():
+            stop_event.set()
         print("[PROCESS] stopped")
 
 
 async def training_task(result_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, stop_event: asyncio.Event):
 
+    button_vectors = {}
+    obj_tensors = {}
+    ojb_tensors_computed = False
+    is_inference = False
+
     try:
+
         print("[INFERENCE]: initializing model")
         model, transforms = await loop.run_in_executor(None, _init_model)
         model = model.to(device=DEVICE)
         transforms = transforms.to(device=DEVICE)
-    except Exception as e:
-        print(f"[INFERENCE] failed - model initialization: {e}")
-        stop_event.set()
-        return
 
-    button_vectors = {}
-    obj_tensors = {}
-    ojb_tensors_computed = False
 
-    try:
         print("[INFERENCE] - starting")
         while not stop_event.is_set():
 
-            frame, button_input = await result_queue.get()
-            
-            print(f"[inference] processing frame for button {button_input}")
+            frame_buffer = {}
+            if not result_queue.empty():
+                while not result_queue.empty(): 
+                    frame, button_input = await result_queue.get()
 
-            features = await loop.run_in_executor(None, _infer_model, model, transforms, frame)
-        
-            # switch between training and inference
-            if button_input["button"] == INFERENCE_BUTTON:
+                    if button_input["button"] == INFERENCE_BUTTON:
+                        break
+
+                    time.sleep(0.3)               
+                    
+                    if button_input["button"] in frame_buffer:
+                        frame_buffer[button_input["button"]].stack(T.from_numpy(frame), dim=0)
+                    else:
+                        frame_buffer[button_input["button"]] = T.from_numpy(frame).unsqueeze(0)
+            
+            if INFERENCE_BUTTON in frame_buffer.keys():
+
+                # inference
+                features = await loop.run_in_executor(None, _infer_model, model, transforms, frame_buffer[INFERENCE_BUTTON].unsqueeze())
+
                 # compute tensors
                 print("[inference] stacking tensors")
                 if not ojb_tensors_computed:
@@ -206,24 +235,42 @@ async def training_task(result_queue: asyncio.Queue, loop: asyncio.AbstractEvent
                         obj_tensors[k] = T.stack(v, dim=1).to(device=DEVICE)
                     ojb_tensors_computed = True
 
-                distances = {BUTTON_NAME_MAP[k]: T.dist(obj_tensors[k].mean(dim=0).squeeze(), features.squeeze()) for k in obj_tensors}
-                print(distances)
+                distances = {BUTTON_NAME_MAP[k]: T.dist(obj_tensors[k].mean(dim=0).squeeze(), features.squeeze()).item() for k in obj_tensors}
+                print(f"prediction: {min(distances.items(), key = lambda a: a[1])}")
                 continue
 
-            if button_input["button"] in button_vectors:
-                button_vectors[button_input["button"]].append(features.to("cpu"))
             else:
-                button_vectors[button_input["button"]] = [features.to("cpu")]
-            ojb_tensors_computed = False
 
-            # print(f"[inference] shape={features.shape} mean={features.mean():.4f}")
-            print("\n".join([f"{BUTTON_NAME_MAP[k]}: {len(e)}" for k, e in button_vectors.items()]))
+                for button, frames in frame_buffer.items():
+                    print(f"[inference] processing frame for button {button} - {frames.shape}")
 
+                    features = await loop.run_in_executor(None, _infer_model, model, transforms, frames)
 
-    except Exception as e:
-        print(f"[INFERENCE] ERROR - {e}")
+                    print("------- TRAINING -------")
+
+                    # Skip if button is not named
+                    if button not in BUTTON_NAME_MAP.keys():
+                        continue
+
+                    if button in button_vectors:
+                        print("appending")
+                        button_vectors[button].stack(features.to("cpu"), dim=0)
+                    else:
+                        print("new vector")
+                        button_vectors[button] = features.to("cpu")
+                    ojb_tensors_computed = False
+
+                    # print(f"[inference] shape={features.shape} mean={features.mean():.4f}")
+                    print("\n".join([f"{BUTTON_NAME_MAP[k]}: {e.shape}" for k, e in button_vectors.items()]))
+
+            # reset frame buffer
+            frame_buffer = {}
+
+    except Exception as exp:
+        print(f"[INFERENCE] ERROR - {exp}")
     finally:
-        stop_event.set()
+        if not stop_event.is_set():
+            stop_event.set()
         print("[INFERENCE] - stopped")
 
 
