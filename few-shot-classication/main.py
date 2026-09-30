@@ -37,10 +37,10 @@ BUTTON_NAME_MAP = {
 
 # OpenCV uses BGR colors.
 CLASS_COLORS = {
-    0: (70, 200, 70),      # Green
-    1: (65, 65, 235),      # Red
-    2: (235, 125, 55),     # Blue
-    3: (40, 215, 245),     # Yellow
+    0: (70, 200, 70),   # Green
+    1: (65, 65, 235),   # Red
+    2: (235, 125, 55),  # Blue
+    3: (40, 215, 245),  # Yellow
 }
 
 CLASS_COLOR_NAMES = {
@@ -155,7 +155,9 @@ def _infer_model(model, transforms, frame_rgb):
         features = model(transforms(tensor))
 
     if not T.is_tensor(features) or features.ndim != 2:
-        raise RuntimeError("Expected encoder output with shape [batch, features].")
+        raise RuntimeError(
+            "Expected encoder output with shape [batch, features]."
+        )
 
     return features[0].detach().float().cpu()
 
@@ -193,7 +195,9 @@ def camera_worker(frame_queue, state, stop_event):
 
         if not stop_event.is_set():
             with state.lock:
-                state.camera_error = "Camera stopped. Restart the application."
+                state.camera_error = (
+                    "Camera stopped. Restart the application."
+                )
 
     except Exception as exc:
         traceback.print_exc()
@@ -251,13 +255,18 @@ def model_worker(work_queue, state, stop_event):
                     active_generation = generation
 
                 if button == INFERENCE_BUTTON and not feature_counts:
-                    state.status = "Collect images before running inference."
+                    state.status = (
+                        "Collect images before running inference."
+                    )
                     continue
 
                 state.status = (
                     "Classifying..."
                     if button == INFERENCE_BUTTON
-                    else f"Collecting image for {BUTTON_NAME_MAP[button]}..."
+                    else (
+                        f"Collecting image for "
+                        f"{BUTTON_NAME_MAP[button]}..."
+                    )
                 )
 
             crop = _crop_largest_object(yolo_model, frame)
@@ -296,7 +305,8 @@ def model_worker(work_queue, state, stop_event):
 
                     state.counts[button] = feature_counts[button]
                     state.status = (
-                        f"Collected image for {BUTTON_NAME_MAP[button]}."
+                        f"Collected image for "
+                        f"{BUTTON_NAME_MAP[button]}."
                     )
 
         except Exception as exc:
@@ -382,7 +392,9 @@ def disconnect_controller(instance_id, joysticks, state):
         except pygame.error:
             pass
 
-        print(f"[INPUT] Controller disconnected: instance {instance_id}")
+        print(
+            f"[INPUT] Controller disconnected: instance {instance_id}"
+        )
 
     update_controller_count(state, joysticks)
 
@@ -503,7 +515,16 @@ def centered_text(
     )
 
 
-def draw_banner(canvas, lines, color, top, video_width, video_height, margin, scale):
+def draw_banner(
+    canvas,
+    lines,
+    color,
+    top,
+    video_width,
+    video_height,
+    margin,
+    scale,
+):
     line_height = max(23, int(32 * scale))
     banner_height = len(lines) * line_height + margin
 
@@ -543,7 +564,11 @@ def draw_banner(canvas, lines, color, top, video_width, video_height, margin, sc
 
 def draw_interface(frame_rgb, snapshot, screen_size):
     width, height = screen_size
-    canvas = np.full((height, width, 3), (18, 20, 24), dtype=np.uint8)
+    canvas = np.full(
+        (height, width, 3),
+        (18, 20, 24),
+        dtype=np.uint8,
+    )
 
     # The classification rectangles occupy approximately the right third.
     panel_width = width // 3
@@ -553,19 +578,23 @@ def draw_interface(frame_rgb, snapshot, screen_size):
     footer_height = max(104, int(140 * scale))
     video_height = height - footer_height
 
-    if frame_rgb is not None:
+    if frame_rgb is not None and video_width > 0 and video_height > 0:
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         frame_h, frame_w = frame_bgr.shape[:2]
         ratio = min(video_width / frame_w, video_height / frame_h)
 
         resized_w = max(1, int(frame_w * ratio))
         resized_h = max(1, int(frame_h * ratio))
-        resized = cv2.resize(frame_bgr, (resized_w, resized_h))
+        resized = cv2.resize(
+            frame_bgr,
+            (resized_w, resized_h),
+        )
 
         x = (video_width - resized_w) // 2
         y = (video_height - resized_h) // 2
         canvas[y:y + resized_h, x:x + resized_w] = resized
-    else:
+
+    elif video_height > 0:
         centered_text(
             canvas,
             "Waiting for camera...",
@@ -575,7 +604,6 @@ def draw_interface(frame_rgb, snapshot, screen_size):
 
     banner_top = margin
 
-    # Keep this notification visible until a controller is connected.
     if snapshot["controller_count"] == 0:
         banner_top = draw_banner(
             canvas,
@@ -660,7 +688,9 @@ def draw_interface(frame_rgb, snapshot, screen_size):
         )
         controller_color = (100, 220, 100)
     else:
-        controller_text = "No controller connected - searching automatically..."
+        controller_text = (
+            "No controller connected - searching automatically..."
+        )
         controller_color = (70, 210, 255)
 
     fit_text(
@@ -696,7 +726,9 @@ def draw_interface(frame_rgb, snapshot, screen_size):
     available_height = height - 5 * margin
     card_height = available_height // 4
 
-    highlight_active = time.monotonic() < snapshot["highlight_until"]
+    highlight_active = (
+        time.monotonic() < snapshot["highlight_until"]
+    )
 
     for index, button in enumerate(BUTTON_NAME_MAP):
         y1 = margin + index * (card_height + margin)
@@ -704,11 +736,14 @@ def draw_interface(frame_rgb, snapshot, screen_size):
         color = CLASS_COLORS[button]
 
         selected = (
-            highlight_active and snapshot["prediction"] == button
+            highlight_active
+            and snapshot["prediction"] == button
         )
 
-        fill = color if selected else tuple(
-            int(channel * 0.38) for channel in color
+        fill = (
+            color
+            if selected
+            else tuple(int(channel * 0.38) for channel in color)
         )
 
         cv2.rectangle(
@@ -746,11 +781,16 @@ def draw_interface(frame_rgb, snapshot, screen_size):
                 max(1, int(2 * scale)),
             )
 
-        text_color = (15, 20, 25) if selected else (245, 245, 245)
+        text_color = (
+            (15, 20, 25)
+            if selected
+            else (245, 245, 245)
+        )
 
         centered_text(
             canvas,
-            f"{BUTTON_NAME_MAP[button]}  /  {CLASS_COLOR_NAMES[button]}",
+            f"{BUTTON_NAME_MAP[button]}  /  "
+            f"{CLASS_COLOR_NAMES[button]}",
             (
                 panel_x1,
                 y1 + int(card_height * 0.08),
@@ -780,7 +820,9 @@ def draw_interface(frame_rgb, snapshot, screen_size):
         centered_text(
             canvas,
             "SELECTED" if selected else (
-                "collected image" if count == 1 else "collected images"
+                "collected image"
+                if count == 1
+                else "collected images"
             ),
             (
                 panel_x1,
@@ -796,6 +838,18 @@ def draw_interface(frame_rgb, snapshot, screen_size):
     return canvas
 
 
+def show_canvas(screen, canvas_bgr):
+    """Draw an OpenCV BGR canvas in the Pygame fullscreen window."""
+    canvas_rgb = cv2.cvtColor(canvas_bgr, cv2.COLOR_BGR2RGB)
+
+    # Pygame's surfarray expects [width, height, channels].
+    surface = pygame.surfarray.make_surface(
+        np.transpose(canvas_rgb, (1, 0, 2))
+    )
+    screen.blit(surface, (0, 0))
+    pygame.display.flip()
+
+
 def main():
     state = AppState()
     stop_event = threading.Event()
@@ -809,11 +863,14 @@ def main():
     try:
         pygame.init()
 
-        display_info = pygame.display.Info()
-        screen_size = (
-            display_info.current_w or 1280,
-            display_info.current_h or 720,
+        # Pygame owns the fullscreen window and keyboard events.
+        # (0, 0) selects the current display resolution.
+        screen = pygame.display.set_mode(
+            (0, 0),
+            pygame.FULLSCREEN,
         )
+        pygame.display.set_caption(WINDOW_NAME)
+        screen_size = screen.get_size()
 
         # Initialization failures are retried by subsequent scans.
         refresh_controllers(joysticks, state)
@@ -827,19 +884,11 @@ def main():
                 "Searching every second. Keyboard controls enabled."
             )
 
-        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-        cv2.setWindowProperty(
-            WINDOW_NAME,
-            cv2.WND_PROP_FULLSCREEN,
-            cv2.WINDOW_FULLSCREEN,
-        )
-
         # Paint the fullscreen interface before loading models.
-        cv2.imshow(
-            WINDOW_NAME,
+        show_canvas(
+            screen,
             draw_interface(None, state.snapshot(), screen_size),
         )
-        cv2.waitKey(1)
 
         workers = [
             threading.Thread(
@@ -860,17 +909,13 @@ def main():
             worker.start()
 
         keyboard_buttons = {
-            ord("a"): 0,
-            ord("b"): 1,
-            ord("c"): 2,
-            ord("d"): 3,
-            ord("A"): 0,
-            ord("B"): 1,
-            ord("C"): 2,
-            ord("D"): 3,
-            ord(" "): INFERENCE_BUTTON,
-            10: START_BUTTON,
-            13: START_BUTTON,
+            pygame.K_a: 0,
+            pygame.K_b: 1,
+            pygame.K_c: 2,
+            pygame.K_d: 3,
+            pygame.K_SPACE: INFERENCE_BUTTON,
+            pygame.K_RETURN: START_BUTTON,
+            pygame.K_KP_ENTER: START_BUTTON,
         }
 
         clock = pygame.time.Clock()
@@ -881,14 +926,25 @@ def main():
             except queue.Empty:
                 pass
 
-            # Keep controller event handling and GUI operations on the main thread.
+            # Controller, keyboard, and display events run on the main thread.
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     stop_event.set()
 
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_q, pygame.K_ESCAPE):
+                        stop_event.set()
+                    elif event.key in keyboard_buttons:
+                        submit_sample(
+                            keyboard_buttons[event.key],
+                            latest_frame,
+                            state,
+                            work_queue,
+                        )
+
                 elif event.type == pygame.JOYDEVICEADDED:
-                    # Scan current devices instead of trusting an event index
-                    # that may have changed during rapid hot-plugging.
+                    # Scan devices rather than trusting an event index that
+                    # may change during rapid hot-plugging.
                     refresh_controllers(joysticks, state)
 
                 elif event.type == pygame.JOYDEVICEREMOVED:
@@ -914,9 +970,7 @@ def main():
             if stop_event.is_set():
                 break
 
-            # Periodic discovery also runs when no controller is connected.
-            # OS-visible controllers are initialized automatically. Bluetooth
-            # pairing, if required, must be completed in the operating system.
+            # Continue discovering controllers when none is connected.
             now = time.monotonic()
             if now >= next_controller_scan:
                 refresh_controllers(joysticks, state)
@@ -924,32 +978,14 @@ def main():
                     time.monotonic() + CONTROLLER_SCAN_INTERVAL
                 )
 
-            canvas = draw_interface(
-                latest_frame,
-                state.snapshot(),
-                screen_size,
-            )
-            cv2.imshow(WINDOW_NAME, canvas)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord("q"), ord("Q"), 27):
-                break
-
-            if key in keyboard_buttons:
-                submit_sample(
-                    keyboard_buttons[key],
+            show_canvas(
+                screen,
+                draw_interface(
                     latest_frame,
-                    state,
-                    work_queue,
-                )
-
-            try:
-                if cv2.getWindowProperty(
-                    WINDOW_NAME, cv2.WND_PROP_VISIBLE
-                ) < 1:
-                    break
-            except cv2.error:
-                break
+                    state.snapshot(),
+                    screen_size,
+                ),
+            )
 
             clock.tick(UI_FPS)
 
@@ -973,7 +1009,6 @@ def main():
                 pass
 
         joysticks.clear()
-        cv2.destroyAllWindows()
         pygame.quit()
 
 
